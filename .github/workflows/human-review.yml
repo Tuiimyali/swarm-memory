@@ -1,0 +1,150 @@
+name: Human Review Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, labeled]
+    paths:
+      - 'PRINCIPLES.md'
+      - 'SOVEREIGNTY.md'
+      - 'skill-patches/**'
+      - 'decisions/**'
+      - 'patterns/**'
+      - 'anti-patterns/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  immutable-protection:
+    name: Protect Immutable Files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get changed files
+        id: changed
+        uses: tj-actions/changed-files@v45
+        with:
+          files: |
+            PRINCIPLES.md
+            SOVEREIGNTY.md
+
+      - name: Block immutable file changes
+        if: steps.changed.outputs.any_changed == 'true'
+        run: |
+          echo "🚫 IMMUTABLE FILES MODIFIED"
+          echo ""
+          echo "The following immutable files were changed:"
+          echo "${{ steps.changed.outputs.all_changed_files }}"
+          echo ""
+          echo "PRINCIPLES.md and SOVEREIGNTY.md are constitutional documents."
+          echo "They cannot be modified without:"
+          echo "  1. Explicit written approval from Sawalmem leadership"
+          echo "  2. The 'leadership-approved' label on this PR"
+          echo "  3. 2 approvals from CODEOWNERS"
+          echo ""
+
+          # Check for leadership-approved label
+          LABELS=$(gh pr view ${{ github.event.pull_request.number }} --json labels --jq '.labels[].name' 2>/dev/null || echo "")
+          if echo "$LABELS" | grep -q "leadership-approved"; then
+            echo "✅ 'leadership-approved' label found. Proceeding with CODEOWNER review."
+          else
+            echo "❌ Missing 'leadership-approved' label. This PR will be auto-rejected."
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Comment on immutable file PR
+        if: steps.changed.outputs.any_changed == 'true' && failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `🚫 **This PR modifies immutable files and has been blocked.**\n\nFiles affected:\n- ${context.payload.pull_request.changed_files} file(s)\n\n\`PRINCIPLES.md\` and \`SOVEREIGNTY.md\` are constitutional documents of the Sawalmem Restoration Swarm. They cannot be modified without:\n\n1. Explicit written approval from Sawalmem leadership\n2. The \`leadership-approved\` label on this PR\n3. 2 approvals from CODEOWNERS\n\nIf this change has been authorized by leadership, add the \`leadership-approved\` label and re-run this check.`
+            });
+
+  review-gate:
+    name: Flag for Human Review
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get changed files
+        id: changed
+        uses: tj-actions/changed-files@v45
+
+      - name: Classify changes
+        id: classify
+        run: |
+          REVIEW_ITEMS=""
+
+          for file in ${{ steps.changed.outputs.all_changed_files }}; do
+            case "$file" in
+              skill-patches/*)
+                REVIEW_ITEMS="${REVIEW_ITEMS}\n- 🔧 **Skill Patch:** \`$file\` — changes how agents build contracts"
+                ;;
+              decisions/*)
+                if [[ "$file" != "decisions/_template.md" ]]; then
+                  REVIEW_ITEMS="${REVIEW_ITEMS}\n- 📐 **Architecture Decision:** \`$file\` — affects system design"
+                fi
+                ;;
+              patterns/*)
+                if [[ "$file" != "patterns/_template.md" ]]; then
+                  REVIEW_ITEMS="${REVIEW_ITEMS}\n- ✅ **Pattern:** \`$file\` — proposed proven pattern"
+                fi
+                ;;
+              anti-patterns/*)
+                if [[ "$file" != "anti-patterns/_template.md" ]]; then
+                  REVIEW_ITEMS="${REVIEW_ITEMS}\n- ⚠️ **Anti-Pattern:** \`$file\` — something that breaks"
+                fi
+                ;;
+            esac
+          done
+
+          if [ -n "$REVIEW_ITEMS" ]; then
+            echo "has_review_items=true" >> $GITHUB_OUTPUT
+            # Save review items to file to avoid shell escaping issues
+            echo -e "$REVIEW_ITEMS" > /tmp/review_items.txt
+          else
+            echo "has_review_items=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Add human-review label
+        if: steps.classify.outputs.has_review_items == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['human-review']
+            });
+
+      - name: Comment review requirements
+        if: steps.classify.outputs.has_review_items == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let items = '';
+            try {
+              items = fs.readFileSync('/tmp/review_items.txt', 'utf8');
+            } catch (e) {
+              items = '(could not parse review items)';
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `👁️ **Human Review Required**\n\nThis PR contains changes that affect how the swarm operates:\n\n${items}\n\n**Review checklist:**\n- [ ] Changes align with the 7 Governing Principles\n- [ ] Changes do not compromise sovereignty controls\n- [ ] Changes do not introduce speculation framing\n- [ ] Changes are legible and can be explained to non-technical stakeholders\n- [ ] If this is a skill patch: the underlying lesson/post-mortem is documented\n\n**Approval required from:** CODEOWNERS (Michael Preston + one leadership member)`
+            });

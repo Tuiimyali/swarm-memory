@@ -1,0 +1,33 @@
+# =============================================================================
+# CODEOWNERS — Sawalmem Swarm Memory
+# =============================================================================
+# This file defines who must approve changes to protected areas of the repository.
+#
+# IMMUTABLE FILES require 2 approvals (both CODEOWNERS must approve).
+# All other protected paths require at least 1 CODEOWNER approval.
+# =============================================================================
+
+# --- Immutable Layer (Constitutional) ---
+# Requires 2 approvals + leadership-approved label
+# These are the 7 Governing Principles and Sovereignty Controls.
+# The human-review.yml workflow auto-rejects PRs without the label.
+PRINCIPLES.md           @pom-sawalmem
+SOVEREIGNTY.md          @pom-sawalmem
+
+# --- High-Impact Directories ---
+# Require CODEOWNER approval
+skill-patches/          @pom-sawalmem
+decisions/              @pom-sawalmem
+patterns/               @pom-sawalmem
+anti-patterns/          @pom-sawalmem
+
+# --- Automation ---
+# Changes to how the swarm operates
+.github/                @pom-sawalmem
+scripts/                @pom-sawalmem
+
+# --- Everything Else ---
+# Gas benchmarks, ecosystem state, lessons, post-mortems
+# Can be auto-approved by the auto-approve.yml workflow
+# but CODEOWNER can always review
+*                       @pom-sawalmem
